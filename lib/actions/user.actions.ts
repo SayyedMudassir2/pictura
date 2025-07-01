@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { currentUser } from "@clerk/nextjs";
 import User from "../database/models/user.model";
 import { connectToDatabase } from "../database/mongoose";
 import { handleError } from "../utils";
@@ -24,9 +25,25 @@ export async function getUserById(userId: string) {
   try {
     await connectToDatabase();
 
-    const user = await User.findOne({ clerkId: userId });
+    let user = await User.findOne({ clerkId: userId });
 
-    if (!user) throw new Error("User not found");
+    // If user doesn't exist, create one from Clerk data
+    if (!user) {
+      const clerkUser = await currentUser();
+      if (!clerkUser) throw new Error("User not authenticated");
+
+      const newUser = await User.create({
+        clerkId: userId,
+        email: clerkUser.emailAddresses[0].emailAddress,
+        username: (clerkUser.username || clerkUser.firstName || "user").toLowerCase(),
+        photo: clerkUser.imageUrl,
+        firstName: clerkUser.firstName || "",
+        lastName: clerkUser.lastName || "",
+        creditBalance: 10,
+      });
+
+      user = newUser;
+    }
 
     return JSON.parse(JSON.stringify(user));
   } catch (error) {
